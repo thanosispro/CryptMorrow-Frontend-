@@ -148,7 +148,7 @@ export default function Analyze() {
     if (!prediction || !prediction.results) return [];
 
     const timeframeSecondsMap = {
-      '1h': 3600, '4h': 14400, '6h': 21600, '12h': 43200, '1d': 86400, '3d': 259200
+      '1h': 3600, '2h': 7200, '3h': 10800, '4h': 14400, '6h': 21600, '12h': 43200, '1d': 86400, '3d': 259200, 'weekly': 604800
     };
     const interval = timeframeSecondsMap[appliedTimeframe] || 86400;
 
@@ -157,45 +157,22 @@ export default function Analyze() {
     const lastTime = lastHistorical ? lastHistorical.time : Math.floor(Date.now() / 1000);
     const lastPrice = lastHistorical ? lastHistorical.close : 0;
 
-    // Initialize combined data with historical points
-    let combined = historicalSlice.map(d => ({
-      ...d,
-      historicalPrice: d.close,
-      predictionPrice: null
-    }));
-
-    // To connect the two charts, the last historical point should have a predictionPrice value matching the last historical price
-    if (combined.length > 0) {
-      combined[combined.length - 1].predictionPrice = lastPrice;
-    }
-
-    // Use the last historical price to scale prediction results so they connect seamlessly
-    const firstPredResult = parseFloat(prediction.results[0]);
-    const ratio = (lastPrice && firstPredResult) ? (lastPrice / firstPredResult) : 1;
-
-    prediction.results.forEach((val, i) => {
+    // Decoupled: Only return prediction points for the prediction chart area
+    return prediction.results.map((val, i) => {
       const time = lastTime + (interval * (i + 1));
-      combined.push({
+      return {
         time,
-        historicalPrice: null,
         predictionPrice: parseFloat(val) * ratio,
         type: 'prediction'
-      });
+      };
     });
-
-    return combined;
-  }, [historicalData, prediction, appliedTimeframe]);
-
-  const splitPointDate = useMemo(() => {
-    const historicalOnly = combinedChartData.filter(d => !d.type || d.type !== 'prediction');
-    return historicalOnly.length > 0 ? historicalOnly[historicalOnly.length - 1].time : null;
-  }, [combinedChartData]);
+  }, [prediction, appliedTimeframe, historicalData]);
 
   const predictionOnlyData = useMemo(() => {
     if (!prediction || !Array.isArray(prediction.results)) return [];
 
     const timeframeSecondsMap = {
-      '1h': 3600, '4h': 14400, '6h': 21600, '12h': 43200, '1d': 86400, '3d': 259200
+      '1h': 3600, '2h': 7200, '3h': 10800, '4h': 14400, '6h': 21600, '12h': 43200, '1d': 86400, '3d': 259200, 'weekly': 604800
     };
     const interval = timeframeSecondsMap[appliedTimeframe] || 86400;
 
@@ -227,6 +204,7 @@ export default function Analyze() {
   }, [prediction, historicalData, appliedTimeframe]);
 
   const advice = useMemo(() => {
+    // ... rest of advice remains same
     if (!prediction || !Array.isArray(prediction.results)) return null;
 
     const results = prediction.results;
