@@ -156,9 +156,17 @@ export default function Analyze() {
     const lastHistorical = historicalSlice[historicalSlice.length - 1];
     const lastTime = lastHistorical ? lastHistorical.time : Math.floor(Date.now() / 1000);
     const lastPrice = lastHistorical ? lastHistorical.close : 0;
+    const firstPred = prediction.results[0];
+    const ratio = lastPrice && firstPred ? lastPrice / firstPred : 1;
 
-    // Decoupled: Only return prediction points for the prediction chart area
-    return prediction.results.map((val, i) => {
+    // Combine historical and prediction data
+    const historicalPoints = historicalSlice.map(d => ({
+      time: d.time,
+      historicalPrice: d.close,
+      type: 'historical'
+    }));
+
+    const predictionPoints = prediction.results.map((val, i) => {
       const time = lastTime + (interval * (i + 1));
       return {
         time,
@@ -166,7 +174,14 @@ export default function Analyze() {
         type: 'prediction'
       };
     });
+
+    return [...historicalPoints, ...predictionPoints];
   }, [prediction, appliedTimeframe, historicalData]);
+
+  const splitPointDate = useMemo(() => {
+    if (historicalData.length === 0) return null;
+    return historicalData[historicalData.length - 1].time;
+  }, [historicalData]);
 
   const predictionOnlyData = useMemo(() => {
     if (!prediction || !Array.isArray(prediction.results)) return [];
