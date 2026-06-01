@@ -1,5 +1,6 @@
 import axios from 'axios';
-import * as dfd from 'danfojs-node';
+
+import { MACD, BollingerBands, doji, hammerpattern } from 'technicalindicators';
 // import talib from 'talib'; // Commented out for now until we confirm if we need it here or if DanfoJS is enough
 
 export default async function handler(req, res) {
@@ -38,52 +39,68 @@ export default async function handler(req, res) {
 
         // 3. Fetch data from Binance
         // Map Cryptocompare timeframe names to Binance if necessary
-        // Binance intervals: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
-        // If user sends 'histoday', it should be '1d'. If 'histohour', it should be '1h'.
         let interval = timeframe;
         if (timeframe === 'histoday') interval = '1d';
         if (timeframe === 'histohour') interval = '1h';
 
-        const klineData = await getHistoricalKlines(symbol, interval, requestedLimit);
+        // Increased buffer for indicator warm-up (MACD needs ~100 to stabilize)
+        const fetchLimit = requestedLimit + 100;
+        const klineData = await getHistoricalKlines(symbol, interval, fetchLimit);
 
-        // 4. Processing Indicators manually for reliability
-        let df = new dfd.DataFrame(klineData);
-        const o = df['open'].values;
-        const h = df['high'].values;
-        const l = df['low'].values;
-        const c = df['close'].values;
+        // 4. Processing Indicators with technicalindicators
+        const prices = klineData.map(d => d.close);
+        const opens = klineData.map(d => d.open);
+        const highs = klineData.map(d => d.high);
+        const lows = klineData.map(d => d.low);
 
         // MACD
-        const { macd, signal } = calculateMACD(c);
+        const macdResults = MACD.calculate({
+            values: prices,
+            fastPeriod: 12,
+            slowPeriod: 26,
+            signalPeriod: 9,
+            SimpleMAOscillator: false,
+            SimpleMASignal: false
+        });
 
         // Bollinger Bands
-        const { upper, middle, lower } = calculateBollingerBands(c, 20);
+        const bbResults = BollingerBands.calculate({
+            period: 20,
+            values: prices,
+            stdDev: 2
+        });
 
-        // Patterns
-        const pattern_doji = [];
-        const pattern_hammer = [];
+        // Map results back to the original array (matching from the end)
+        const processedFull = klineData.map((d, i) => {
+            // Signal and result alignment:
+            // The library returns results only for valid windows.
+            // Result index = input index - (input length - result length)
+            
+            const macdOffset = prices.length - macdResults.length;
+            const bbOffset = prices.length - bbResults.length;
 
-        for (let i = 0; i < c.length; i++) {
-            const bodySize = Math.abs(c[i] - o[i]);
-            const rangeSize = h[i] - l[i];
-            const lowerWickSize = Math.min(o[i], c[i]) - l[i];
-            const upperWickSize = h[i] - Math.max(o[i], c[i]);
+            const macdEntry = i >= macdOffset ? macdResults[i - macdOffset] : null;
+            const bbEntry = i >= bbOffset ? bbResults[i - bbOffset] : null;
 
-            pattern_doji.push(rangeSize > 0 ? (bodySize / rangeSize <= 0.1) : false);
-            pattern_hammer.push((lowerWickSize > (bodySize * 2)) && (upperWickSize < bodySize));
-        }
+            // Patterns
+            const candle = { open: [opens[i]], high: [highs[i]], low: [lows[i]], close: [prices[i]] };
+            const pattern_doji = doji(candle);
+            const pattern_hammer = hammerpattern(candle);
 
-        // Add back to DataFrame for tail slicing and JSON conversion
-        df.addColumn('macd', macd, { inplace: true });
-        df.addColumn('macd_signal', signal, { inplace: true });
-        df.addColumn('bb_upper', upper, { inplace: true });
-        df.addColumn('bb_middle', middle, { inplace: true });
-        df.addColumn('bb_lower', lower, { inplace: true });
-        df.addColumn('pattern_doji', pattern_doji, { inplace: true });
-        df.addColumn('pattern_hammer', pattern_hammer, { inplace: true });
+            return {
+                ...d,
+                macd: macdEntry ? macdEntry.MACD : 'N/A',
+                macd_signal: macdEntry ? macdEntry.signal : 'N/A',
+                bb_upper: bbEntry ? bbEntry.upper : 'N/A',
+                bb_middle: bbEntry ? bbEntry.middle : 'N/A',
+                bb_lower: bbEntry ? bbEntry.lower : 'N/A',
+                pattern_doji: pattern_doji ? "TRUE" : "FALSE",
+                pattern_hammer: pattern_hammer ? "TRUE" : "FALSE"
+            };
+        });
 
-        // Slice to requested limit and convert back to JSON
-        let processedData = dfd.toJSON(df.tail(requestedLimit));
+        // Important: result should only contain the requested amount of data
+        const processedData = processedFull.slice(-requestedLimit);
 
         res.status(200).json({
             status: 'success',
@@ -105,15 +122,13 @@ async function getHistoricalKlines(symbol, interval, limit = 500) {
     let endTime = Date.now();
     const batchSize = 1000; // Binance max limit per request
 
-    // Ensure we fetch at least enough to calculate indicators if needed (e.g., +50)
-    const targetCount = limit + 50;
-
-    while (allKlines.length < targetCount) {
+    // Fetch enough to satisfy the request
+    while (allKlines.length < limit) {
         const response = await axios.get('https://api.binance.com/api/v3/klines', {
             params: {
                 symbol: symbol,
                 interval: interval,
-                limit: batchSize,
+                limit: Math.min(batchSize, limit - allKlines.length + 50), // Fetch a bit extra to be safe
                 endTime: endTime
             }
         });
@@ -135,7 +150,7 @@ async function getHistoricalKlines(symbol, interval, limit = 500) {
         allKlines = [...formattedData, ...allKlines];
         endTime = data[0][0] - 1;
 
-        if (allKlines.length >= targetCount) break;
+        if (allKlines.length >= limit) break;
 
         // Small delay to respect rate limits
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -144,53 +159,3 @@ async function getHistoricalKlines(symbol, interval, limit = 500) {
     return allKlines.slice(-limit);
 }
 
-function calculateEMA(data, period) {
-    const k = 2 / (period + 1);
-    let ema = new Array(data.length).fill(null);
-    let sum = 0;
-    for (let i = 0; i < period; i++) sum += data[i];
-    ema[period - 1] = sum / period;
-
-    for (let i = period; i < data.length; i++) {
-        ema[i] = data[i] * k + ema[i - 1] * (1 - k);
-    }
-    return ema;
-}
-
-function calculateMACD(data) {
-    const ema12 = calculateEMA(data, 12);
-    const ema26 = calculateEMA(data, 26);
-    const macd = new Array(data.length).fill(null);
-    const signal = new Array(data.length).fill(null);
-
-    for (let i = 25; i < data.length; i++) {
-        macd[i] = ema12[i] - ema26[i];
-    }
-
-    const macdValid = macd.slice(25).filter(v => v !== null);
-    const signalEMARaw = calculateEMA(macdValid, 9);
-
-    let signalIndex = 0;
-    for (let i = 25 + 8; i < data.length; i++) {
-        signal[i] = signalEMARaw[signalIndex++];
-    }
-
-    return { macd, signal };
-}
-
-function calculateBollingerBands(data, period = 20) {
-    const upper = new Array(data.length).fill(null);
-    const middle = new Array(data.length).fill(null);
-    const lower = new Array(data.length).fill(null);
-
-    for (let i = period - 1; i < data.length; i++) {
-        const slice = data.slice(i - period + 1, i + 1);
-        const mean = slice.reduce((a, b) => a + b, 0) / period;
-        const std = Math.sqrt(slice.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / period);
-        middle[i] = mean;
-        upper[i] = mean + (std * 2);
-        lower[i] = mean - (std * 2);
-    }
-
-    return { upper, middle, lower };
-}
