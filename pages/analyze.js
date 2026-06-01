@@ -159,15 +159,18 @@ export default function Analyze() {
     const firstPred = prediction.results[0];
     const ratio = lastPrice && firstPred ? lastPrice / firstPred : 1;
 
-    // Combine historical and prediction data
+    // Combine historical and prediction data without a bridge point to keep lines separate
     const historicalPoints = historicalSlice.map(d => ({
       time: d.time,
       historicalPrice: d.close,
       type: 'historical'
     }));
 
+    // Start prediction points separately
     const predictionPoints = prediction.results.map((val, i) => {
-      const time = lastTime + (interval * (i + 1));
+      // Use current time as baseline for future points if historical is empty
+      const baseTime = lastTime || Math.floor(Date.now() / 1000);
+      const time = baseTime + (interval * (i + 1));
       return {
         time,
         predictionPrice: parseFloat(val) * ratio,
@@ -191,13 +194,7 @@ export default function Analyze() {
     };
     const interval = timeframeSecondsMap[appliedTimeframe] || 86400;
 
-    let startTime = historicalData.length > 0
-      ? historicalData[historicalData.length - 1].time
-      : Math.floor(Date.now() / 1000);
-
-    let lastActualPrice = historicalData.length > 0 ? historicalData[historicalData.length - 1].close : 0;
-    const firstPred = prediction.results[0];
-    const ratio = lastActualPrice && firstPred ? lastActualPrice / firstPred : 1;
+    let startTime = Math.floor(Date.now() / 1000);
 
     return prediction.results.map((val, i) => {
       const t = startTime + (interval * (i + 1));
@@ -212,19 +209,17 @@ export default function Analyze() {
 
       return {
         label,
-        price: val * ratio,
+        price: parseFloat(val),
         index: i + 1
       };
     });
-  }, [prediction, historicalData, appliedTimeframe]);
+  }, [prediction, appliedTimeframe]);
 
   const advice = useMemo(() => {
-    // ... rest of advice remains same
     if (!prediction || !Array.isArray(prediction.results)) return null;
 
-    const results = prediction.results;
-    const lastHistorical = historicalData[historicalData.length - 1];
-    const first = lastHistorical ? lastHistorical.close : results[0];
+    const results = prediction.results.map(parseFloat);
+    const first = results[0];
     const last = results[results.length - 1];
     const isBull = last > first;
 
@@ -237,7 +232,7 @@ export default function Analyze() {
       type, color, bgColor, borderColor, isBull,
       message: `Our AI predicts a potential ${type.toLowerCase()} trend for the next 10 periods. Market patterns suggest a possible ${isBull ? 'uptrend' : 'correction'} based on current activity.`
     };
-  }, [prediction, historicalData, appliedTsym]);
+  }, [prediction, appliedTsym]);
 
   return (
     <>
@@ -423,22 +418,14 @@ export default function Analyze() {
                     <div className="h-[350px] sm:h-[450px] relative w-full">
                       <div className="absolute top-0 right-0 flex items-center gap-4 sm:gap-6 z-10 bg-white/50 backdrop-blur-md p-2.5 sm:p-3 rounded-2xl border border-border-subtle shadow-sm">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-2.5 h-2.5 rounded-full bg-primary" />
-                          <span className="text-[9px] font-black text-text-tertiary uppercase tracking-widest">Historical</span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
                           <div className="w-2.5 h-2.5 rounded-full bg-accent" />
-                          <span className="text-[9px] font-black text-text-tertiary uppercase tracking-widest">Prediction</span>
+                          <span className="text-[9px] font-black text-text-tertiary uppercase tracking-widest">AI Prediction Results</span>
                         </div>
                       </div>
 
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={combinedChartData}>
                           <defs>
-                            <linearGradient id="primaryGradient" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1} />
-                              <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                            </linearGradient>
                             <linearGradient id="accentGradient" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.1} />
                               <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
@@ -448,7 +435,7 @@ export default function Analyze() {
                           <XAxis
                             dataKey="time"
                             type="number"
-                            domain={['dataMin', 'dataMax']}
+                            domain={['auto', 'auto']}
                             stroke="#94a3b8"
                             fontSize={10}
                             fontWeight="bold"
@@ -473,9 +460,7 @@ export default function Analyze() {
                               return date.toLocaleString();
                             }}
                           />
-                          <Area type="monotone" dataKey="historicalPrice" stroke="#6366f1" strokeWidth={2} fill="url(#primaryGradient)" isAnimationActive={false} connectNulls={true} />
-                          <Area type="monotone" dataKey="predictionPrice" stroke="#06b6d4" strokeWidth={3} strokeDasharray="5 5" fill="url(#accentGradient)" isAnimationActive={true} connectNulls={true} />
-                          {splitPointDate && <ReferenceLine x={splitPointDate} stroke="rgba(0,0,0,0.05)" strokeDasharray="3 3" />}
+                          <Area type="monotone" dataKey="predictionPrice" stroke="#06b6d4" strokeWidth={3} fill="url(#accentGradient)" isAnimationActive={true} />
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>

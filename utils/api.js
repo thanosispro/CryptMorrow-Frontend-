@@ -76,36 +76,23 @@ export const refreshAccessToken = async () => {
 };
 
 /**
- * Fetches historical data from our backend, which aggregates and calculates indicators.
+ * Fetches historical data from our Next.js Proxy API, which handles Binance data and indicators.
  */
 export const fetchHistoricalData = async (coin, timeframe, limit = 100) => {
   const token = Cookies.get('cryptmorrow_access_token');
 
-  // Map our timeframe to backend expectation
-  let tf = 'histohour';
-  if (['1d', '2d', '3d'].includes(timeframe)) {
-    tf = 'histoday';
-  }
+  // Map our timeframe to Binance expectation if needed
+  // In the proxy, we handle these mappings or pass them through
+  const symbol = `${coin}USDT`; // Binance symbols usually have USDT quote
 
-  const fetchWithRetry = async (t) => {
-    const res = await fetch(`${API_URL}/market-data/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${t}`
-      },
-      body: JSON.stringify({ coin, limit, timeframe: tf })
-    });
-
-    if (res.status === 401) {
-      const refreshed = await refreshAccessToken();
-      if (refreshed) return fetchWithRetry(refreshed);
-    }
-
-    return res;
-  };
-
-  const res = await fetchWithRetry(token);
+  const res = await fetch(`/api/market/klines`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({ symbol, limit, timeframe })
+  });
 
   if (!res.ok) {
     const errorData = await res.json();

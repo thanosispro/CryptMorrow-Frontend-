@@ -1,6 +1,6 @@
 import Head from 'next/head';
 import { useAuth } from '../contexts/AuthContext';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Cookies from 'js-cookie';
 import { motion } from 'framer-motion';
 import { 
@@ -22,6 +22,32 @@ export default function Profile() {
   const [newUsername, setNewUsername] = useState(user?.username || '');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+
+  // Fetch real-time user data to ensure latest credits and membership
+  useEffect(() => {
+    const fetchUserData = async () => {
+      const token = Cookies.get('cryptmorrow_access_token');
+      if (!token) return;
+
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/user/`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        const data = await res.json();
+        if (data.id) {
+          const tokenRefresh = Cookies.get('cryptmorrow_refresh_token');
+          login(data, token, tokenRefresh);
+          setNewUsername(data.username);
+        }
+      } catch (err) {
+        console.error('Failed to fetch real-time user data:', err);
+      }
+    };
+
+    fetchUserData();
+  }, []);
 
   const handleUpdate = async () => {
     if (!newUsername.trim()) return;

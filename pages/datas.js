@@ -45,13 +45,14 @@ export default function Datas() {
 
     try {
       const token = Cookies.get('cryptmorrow_access_token');
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/market-data/`, {
+      const symbol = `${coin}USDT`;
+      const res = await fetch(`/api/market/klines`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ coin, limit, timeframe })
+        body: JSON.stringify({ symbol, limit, timeframe })
       });
       const json = await res.json();
 
@@ -227,12 +228,18 @@ export default function Datas() {
                       value={timeframe} onChange={e => setTimeframe(e.target.value)}
                       className="w-full bg-white border border-blue-100 rounded-2xl px-6 py-5 text-text-primary text-base font-black focus:outline-none focus:border-secondary focus:ring-8 focus:ring-secondary/5 transition-all appearance-none cursor-pointer uppercase tracking-tight shadow-sm"
                     >
-                      <option value="histohour">Hourly (1H)</option>
-                      <option value="2h">2 Hours (2H)</option>
-                      <option value="3h">3 Hours (3H)</option>
-                      <option value="4h">4 Hours (4H)</option>
-                      <option value="histoday">Daily (1D)</option>
-                      <option value="weekly">Weekly (1W)</option>
+                      <option value="1h">1 Hour</option>
+                      <option value="2h">2 Hours</option>
+                      <option value="4h">4 Hours</option>
+                      <option value="6h">6 Hours</option>
+                      <option value="8h">8 Hours</option>
+                      <option value="12h">12 Hours</option>
+
+                      <option value="1d">1 Day</option>
+                      <option value="3d">3 Days</option>
+
+                      <option value="1w">1 Week</option>
+                      <option value="1M">1 Month</option>
                     </select>
                     <Calendar className="absolute right-6 top-1/2 -translate-y-1/2 w-5 h-5 text-text-tertiary pointer-events-none group-focus-within:text-secondary transition-colors duration-500" />
                   </div>
